@@ -1,15 +1,18 @@
 #!/bin/bash
-# linux-ssh.sh using Serveo
-# /home/runner/.serveo.log
+# linux-ssh.sh using Serveo with fixed port
 
-# Add user and set password
+# -----------------------------
+# Add Linux user and set password
+# -----------------------------
 sudo useradd -m $LINUX_USERNAME
 sudo adduser $LINUX_USERNAME sudo
 echo "$LINUX_USERNAME:$LINUX_USER_PASSWORD" | sudo chpasswd
 sed -i 's/\/bin\/sh/\/bin\/bash/g' /etc/passwd
 sudo hostname $LINUX_MACHINE_NAME
 
-# Check required secrets
+# -----------------------------
+# Validate required secrets
+# -----------------------------
 if [[ -z "$LINUX_USER_PASSWORD" ]]; then
   echo "Please set 'LINUX_USER_PASSWORD' for user: $USER"
   exit 2
@@ -20,32 +23,38 @@ if [[ -z "$LINUX_USERNAME" ]]; then
   exit 3
 fi
 
+# -----------------------------
+# Update user password
+# -----------------------------
 echo "### Update user password ###"
 echo -e "$LINUX_USER_PASSWORD\n$LINUX_USER_PASSWORD" | sudo passwd "$USER"
 
-echo "### Start Serveo reverse SSH tunnel for port 22 ###"
-
-# Remove old log
+# -----------------------------
+# Start Serveo reverse SSH tunnel
+# -----------------------------
+# Fixed port (change if needed)
+SERVEO_PORT=2222
 SERVEO_LOG=".serveo.log"
 rm -f $SERVEO_LOG
 
-# Run Serveo tunnel in background, allocate random public port
-ssh -o StrictHostKeyChecking=no -R 0:localhost:22 serveo.net > $SERVEO_LOG 2>&1 &
+# Run Serveo tunnel in background (-N prevents shell allocation)
+ssh -o StrictHostKeyChecking=no -R ${SERVEO_PORT}:localhost:22 serveo.net -N > $SERVEO_LOG 2>&1 &
 
-# Wait for tunnel to initialize
+# Wait a few seconds for tunnel to initialize
 sleep 5
 
-# Extract the public host and port
-PUBLIC_URL=$(grep -oE "Forwarding TCP connections from [^ ]+" $SERVEO_LOG | awk '{print $5}')
-
-if [[ -z "$PUBLIC_URL" ]]; then
+# Check if tunnel started
+if grep -q "remote port forwarding failed" $SERVEO_LOG; then
   echo "Failed to start Serveo tunnel. Check logs:"
   cat $SERVEO_LOG
   exit 4
 fi
 
+# -----------------------------
+# Output SSH connection info
+# -----------------------------
 echo ""
 echo "=========================================="
 echo "To connect from Termux (Android):"
-echo "ssh $LINUX_USERNAME@${PUBLIC_URL}"
+echo "ssh $LINUX_USERNAME@serveo.net -p $SERVEO_PORT"
 echo "=========================================="
