@@ -1,5 +1,5 @@
 #!/bin/bash
-# linux-ssh.sh using Serveo with fixed port
+# linux-ssh.sh using Cloudflare Tunnel
 
 # -----------------------------
 # Add Linux user and set password
@@ -14,7 +14,7 @@ sudo hostname $LINUX_MACHINE_NAME
 # Validate required secrets
 # -----------------------------
 if [[ -z "$LINUX_USER_PASSWORD" ]]; then
-  echo "Please set 'LINUX_USER_PASSWORD' for user: $USER"
+  echo "Please set 'LINUX_USER_PASSWORD'"
   exit 2
 fi
 
@@ -30,23 +30,31 @@ echo "### Update user password ###"
 echo -e "$LINUX_USER_PASSWORD\n$LINUX_USER_PASSWORD" | sudo passwd "$USER"
 
 # -----------------------------
-# Start Serveo reverse SSH tunnel
+# Install cloudflared
 # -----------------------------
-# Fixed port (change if needed)
-SERVEO_PORT=2222
-SERVEO_LOG=".serveo.log"
-rm -f $SERVEO_LOG
+echo "### Install Cloudflare Tunnel ###"
+wget -q https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64
+sudo mv cloudflared-linux-amd64 /usr/local/bin/cloudflared
+sudo chmod +x /usr/local/bin/cloudflared
 
-# Run Serveo tunnel in background (-N prevents shell allocation)
-ssh -o StrictHostKeyChecking=no -R ${SERVEO_PORT}:localhost:22 serveo.net -N > $SERVEO_LOG 2>&1 &
+# -----------------------------
+# Start Cloudflare Tunnel for SSH (port 22)
+# -----------------------------
+CF_LOG=".cloudflared.log"
+rm -f $CF_LOG
+
+# Start tunnel in background
+cloudflared tunnel --url ssh://localhost:22 > $CF_LOG 2>&1 &
 
 # Wait a few seconds for tunnel to initialize
-sleep 5
+sleep 10
 
-# Check if tunnel started
-if grep -q "remote port forwarding failed" $SERVEO_LOG; then
-  echo "Failed to start Serveo tunnel. Check logs:"
-  cat $SERVEO_LOG
+# Extract the public TCP URL from logs
+PUBLIC_URL=$(grep -oE "tcp://[a-zA-Z0-9\.-]+:[0-9]+" $CF_LOG | head -n1)
+
+if [[ -z "$PUBLIC_URL" ]]; then
+  echo "Failed to start Cloudflare Tunnel. Check logs:"
+  cat $CF_LOG
   exit 4
 fi
 
@@ -56,5 +64,5 @@ fi
 echo ""
 echo "=========================================="
 echo "To connect from Termux (Android):"
-echo "ssh $LINUX_USERNAME@serveo.net -p $SERVEO_PORT"
+echo "ssh $LINUX_USERNAME@${PUBLIC_URL#tcp://}"
 echo "=========================================="
